@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;505;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom continuous pulses for healthcare aesthetic */
+@keyframes heartPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.025);
+    opacity: 1;
+  }
+}
+
+.pulse-card {
+  animation: heartPulse 4s infinite ease-in-out;
+}
+
+/* Custom scrollbars for pristine dark-mode aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Print CSS for clinical PDF layout */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+  
+  /* Hide UI elements that are irrelevant for clinical records */
+  nav, 
+  footer, 
+  .no-print, 
+  select, 
+  button, 
+  .preset-card, 
+  .search-container {
+    display: none !important;
+  }
+
+  /* Make clinical report take full width and clean style */
+  .print-report-wrapper {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .print-report-wrapper * {
+    color: #000000 !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  .print-report-wrapper text, 
+  .print-report-wrapper span, 
+  .print-report-wrapper h2, 
+  .print-report-wrapper h3, 
+  .print-report-wrapper p, 
+  .print-report-wrapper li {
+    color: #000000 !important;
+  }
+}
+

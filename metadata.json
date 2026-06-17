@@ -1,0 +1,6 @@
+{
+  "name": "Disease Prediction System",
+  "description": "An interactive, web-based intelligence platform for symptom-based disease screening, disease descriptions, precautions, and specialist doctor recommendations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
