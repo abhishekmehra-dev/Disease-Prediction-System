@@ -21,6 +21,15 @@ const ai = apiKey ? new GoogleGenAI({
   }
 }) : null;
 
+// Helper to strip markdown formatting blocks from Gemini JSON outputs
+function cleanJsonText(raw: string): string {
+  let cleaned = raw.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+  return cleaned.trim();
+}
+
 // Endpoint to return all diseases with details for the information tab
 app.get("/api/diseases", (req, res) => {
   res.json(Object.values(DISEASES_DATA));
@@ -87,33 +96,70 @@ Provide your response strictly in raw JSON format matching this schema:
 }
 Ensure you ONLY return raw valid JSON (no surrounding markdown code blocks, just pure parsable JSON text).`;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
+        const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+        let response = null;
+        let lastError = null;
+
+        for (const modelName of modelsToTry) {
+          try {
+            console.log(`Attempting diagnostic generation with model: ${modelName}`);
+            response = await ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config: {
+                responseMimeType: "application/json",
+              }
+            });
+            if (response && response.text) {
+              console.log(`Diagnostic prediction succeeded using model: ${modelName}`);
+              break;
+            }
+          } catch (modelErr: any) {
+            console.warn(`Model ${modelName} failed or busy:`, modelErr.message || modelErr);
+            lastError = modelErr;
           }
-        });
+        }
 
         if (response && response.text) {
           try {
-            const result = JSON.parse(response.text.trim());
-            if (result && result.disease && DISEASES_DATA[result.disease]) {
-              predictedDiseaseName = result.disease;
-              confidence = Math.max(30, Math.min(100, result.confidence || 85));
-              clinicalSummary = result.clinical_summary || "";
+            const rawText = cleanJsonText(response.text);
+            const result = JSON.parse(rawText);
+            
+            if (result && typeof result === "object") {
+              const resDiseaseName = result.disease || "";
+              
+              // Find case-insensitive exact or fallback match in DISEASES_DATA
+              const closestMatch = Object.keys(DISEASES_DATA).find(
+                d => d.toLowerCase() === resDiseaseName.toLowerCase()
+              ) || fallbackLocalPredictor(activeSymptoms).disease;
+
+              predictedDiseaseName = closestMatch;
+              
+              // Protect against non-numeric or NaN confidence levels
+              const rawConfidence = Number(result.confidence);
+              confidence = (!isNaN(rawConfidence) && rawConfidence > 0) 
+                ? Math.max(30, Math.min(100, rawConfidence)) 
+                : 85;
+
+              clinicalSummary = result.clinical_summary || result.reasoning || "";
               
               if (result.differentials && Array.isArray(result.differentials)) {
-                differentials = result.differentials.filter((d: any) => d && d.disease && DISEASES_DATA[d.disease]);
+                differentials = result.differentials
+                  .filter((d: any) => d && typeof d === "object" && d.disease)
+                  .map((d: any) => {
+                    const diffMatch = Object.keys(DISEASES_DATA).find(
+                      k => k.toLowerCase() === String(d.disease).toLowerCase()
+                    );
+                    const rawProb = Number(d.probability);
+                    return {
+                      disease: diffMatch || d.disease,
+                      probability: (!isNaN(rawProb) && rawProb > 0) ? Math.max(5, Math.min(95, rawProb)) : 15
+                    };
+                  })
+                  .filter(d => DISEASES_DATA[d.disease]);
               }
             } else {
-              // If AI returns a disease not in our static keys, we find closest match
-              const closestMatch = Object.keys(DISEASES_DATA).find(
-                d => d.toLowerCase() === (result.disease || "").toLowerCase()
-              ) || fallbackLocalPredictor(activeSymptoms).disease;
-              predictedDiseaseName = closestMatch;
-              confidence = Math.max(30, Math.min(100, result.confidence || 80));
-              clinicalSummary = result.clinical_summary || "";
+              throw new Error("Returned JSON is not an object.");
             }
           } catch (jsonErr) {
             console.error("AI returned unparsable JSON, using local matching engine.", jsonErr, response.text);
@@ -121,6 +167,11 @@ Ensure you ONLY return raw valid JSON (no surrounding markdown code blocks, just
             predictedDiseaseName = localRes.disease;
             differentials = localRes.differentials;
           }
+        } else {
+          console.warn("No response text from any AI models. Using local matching engine.");
+          const localRes = fallbackLocalPredictor(activeSymptoms);
+          predictedDiseaseName = localRes.disease;
+          differentials = localRes.differentials;
         }
       } catch (aiErr) {
         console.error("AI Generation failed, running local matching engine:", aiErr);
