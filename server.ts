@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import { DISEASES_DATA } from "./src/symptomsData";
+import { DISEASES_DATA, fallbackLocalPredictor } from "./src/symptomsData";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -212,96 +212,6 @@ Ensure you ONLY return raw valid JSON (no surrounding markdown code blocks, just
     res.status(500).json({ error: error.message || "Something went wrong during disease prediction." });
   }
 });
-
-// Fallback local symptom matching and dynamic differential score calculation
-function fallbackLocalPredictor(activeSymptoms: string[]): { disease: string; differentials: { disease: string; probability: number }[] } {
-  const symptomMap: Record<string, string[]> = {
-    "Fungal infection": ["itching", "skin_rash", "nodal_skin_eruptions", "dischromic_patches"],
-    "Allergy": ["continuous_sneezing", "shivering", "chills", "watery_eyes"],
-    "GERD": ["stomach_pain", "acidity", "ulcers_on_tongue", "vomiting", "cough"],
-    "Chronic cholestasis": ["vomiting", "yellowish_skin", "nausea", "loss_of_appetite", "yellowing_of_eyes"],
-    "Drug Reaction": ["itching", "skin_rash", "stomach_pain", "burning_micturition", "spotting_ urination"],
-    "Peptic ulcer disease": ["vomiting", "indigestion", "loss_of_appetite", "abdominal_pain"],
-    "AIDS": ["muscle_wasting", "patches_in_throat", "high_fever", "extra_marital_contacts"],
-    "Diabetes": ["fatigue", "weight_loss", "lethargy", "irregular_sugar_level", "excessive_hunger", "increased_appetite", "polyuria"],
-    "Gastroenteritis": ["vomiting", "sunken_eyes", "dehydration", "diarrhoea"],
-    "Bronchial Asthma": ["fatigue", "cough", "high_fever", "breathlessness", "family_history", "mucoid_sputum"],
-    "Hypertension": ["headache", "chest_pain", "dizziness", "loss_of_balance", "lack_of_concentration"],
-    "Migraine": ["acidity", "indigestion", "headache", "blurred_and_distorted_vision", "depression", "irritability", "visual_disturbances"],
-    "Cervical spondylosis": ["back_pain", "neck_pain", "dizziness", "loss_of_balance"],
-    "Paralysis (brain hemorrhage)": ["vomiting", "headache", "weakness_in_limbs", "altered_sensorium"],
-    "Jaundice": ["vomiting", "yellowish_skin", "abdominal_pain", "dark_urine"],
-    "Malaria": ["chills", "vomiting", "high_fever", "sweating", "headache", "muscle_pain"],
-    "Chicken pox": ["itching", "skin_rash", "fatigue", "lethargy", "high_fever", "headache", "loss_of_appetite", "mild_fever", "swelled_lymph_nodes", "red_spots_over_body"],
-    "Dengue": ["skin_rash", "chills", "joint_pain", "vomiting", "high_fever", "headache", "nausea", "loss_of_appetite", "pain_behind_the_eyes", "back_pain", "muscle_pain", "red_spots_over_body"],
-    "Typhoid": ["chills", "vomiting", "fatigue", "high_fever", "headache", "nausea", "loss_of_appetite", "constipation", "abdominal_pain", "diarrhoea", "toxic_look_(typhoid)"],
-    "Hepatitis A": ["joint_pain", "vomiting", "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "abdominal_pain", "diarrhoea", "mild_fever", "yellowing_of_eyes"],
-    "Hepatitis B": ["itching", "fatigue", "yellowish_skin", "dark_urine", "loss_of_appetite", "abdominal_pain", "yellowing_of_eyes", "receiving_blood_transfusion", "receiving_unsterile_injections"],
-    "Hepatitis C": ["fatigue", "yellowish_skin", "nausea", "loss_of_appetite", "yellowing_of_eyes", "family_history"],
-    "Hepatitis D": ["joint_pain", "vomiting", "fatigue", "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "abdominal_pain", "yellowing_of_eyes"],
-    "Hepatitis E": ["joint_pain", "vomiting", "fatigue", "yellowish_skin", "dark_urine", "nausea", "loss_of_appetite", "abdominal_pain", "diarrhoea", "acute_liver_failure", "yellowing_of_eyes", "coma", "stomach_bleeding"],
-    "Alcoholic hepatitis": ["vomiting", "yellowish_skin", "abdominal_pain", "swelling_of_stomach", "distention_of_abdomen", "history_of_alcohol_consumption"],
-    "Tuberculosis": ["chills", "vomiting", "fatigue", "weight_loss", "cough", "high_fever", "breathlessness", "sweating", "loss_of_appetite", "mild_fever", "swelled_lymph_nodes", "malaise", "phlegm", "chest_pain", "blood_in_sputum"],
-    "Common Cold": ["continuous_sneezing", "chills", "fatigue", "cough", "high_fever", "headache", "throat_irritation", "redness_of_eyes", "sinus_pressure", "runny_nose", "congestion", "chest_pain", "muscle_pain"],
-    "Pneumonia": ["chills", "fatigue", "cough", "high_fever", "breathlessness", "sweating", "malaise", "phlegm", "chest_pain", "fast_heart_rate", "rusty_sputum"],
-    "Dimorphic hemorrhoids(piles)": ["constipation", "pain_during_bowel_movements", "pain_in_anal_region", "bloody_stool", "irritation_in_anus"],
-    "Heart attack": ["vomiting", "breathlessness", "sweating", "chest_pain", "palpitations"],
-    "Varicose veins": ["fatigue", "cramps", "bruising", "swollen_legs", "swollen_blood_vessels", "prominent_veins_on_calf"],
-    "Hypothyroidism": ["fatigue", "weight_gain", "cold_hands_and_feets", "mood_swings", "lethargy", "dizziness", "puffy_face_and_eyes", "enlarged_thyroid", "brittle_nails", "swollen_extremeties", "depression", "irritability", "abnormal_menstruation"],
-    "Hyperthyroidism": ["fatigue", "weight_loss", "restlessness", "lethargy", "sweating", "diarrhoea", "fast_heart_rate", "excessive_hunger", "irritability", "abnormal_menstruation"],
-    "Hypoglycemia": ["fatigue", "anxiety", "sweating", "headache", "nausea", "blurred_and_distorted_vision", "excessive_hunger", "drying_of_lips_and_throat", "irritability", "palpitations"],
-    "Osteoarthristis": ["joint_pain", "neck_pain", "painful_walking"],
-    "Arthritis": ["joint_pain", "painful_walking", "swelling_joints"],
-    "Acne": ["skin_rash", "pus_filled_pimples", "blackheads", "scurring"],
-    "Urinary tract infection": ["burning_micturition", "continuous_feel_of_urine"],
-    "Psoriasis": ["skin_rash", "joint_pain", "skin_peeling", "silver_like_dusting", "small_dents_in_nails", "inflammatory_nails"],
-    "Impetigo": ["skin_rash", "high_fever", "blister", "red_sore_around_nose", "yellow_crust_ooze"]
-  };
-
-  const overlapScores: { disease: string; score: number }[] = [];
-
-  for (const [disease, symptomsList] of Object.entries(symptomMap)) {
-    const intersection = activeSymptoms.filter(x => symptomsList.includes(x)).length;
-    if (intersection > 0) {
-      // Calculate dynamic relative probability percentage
-      overlapScores.push({ disease, score: intersection });
-    }
-  }
-
-  // Sort descending by intersection score
-  overlapScores.sort((a, b) => b.score - a.score);
-
-  const primaryDisease = overlapScores.length > 0 ? overlapScores[0].disease : "Common Cold";
-  
-  // Construct unique, logical alternative differentials
-  const differentials: { disease: string; probability: number }[] = [];
-  if (overlapScores.length > 1) {
-    overlapScores.slice(1, 4).forEach((item, idx) => {
-      // assign hypothetical relative matching probabilities
-      const baseProb = Math.max(8, Math.min(28, item.score * 15 - idx * 4));
-      differentials.push({ disease: item.disease, probability: baseProb });
-    });
-  }
-
-  // Add generic backup if no other overlap
-  if (differentials.length === 0) {
-    const parentCat = DISEASES_DATA[primaryDisease]?.category || "Viral Infection";
-    const siblings = Object.values(DISEASES_DATA).filter(
-      d => d.category === parentCat && d.disease !== primaryDisease
-    );
-    if (siblings.length > 0) {
-      differentials.push({ disease: siblings[0].disease, probability: 18 });
-    }
-    if (siblings.length > 1) {
-      differentials.push({ disease: siblings[1].disease, probability: 11 });
-    }
-  }
-
-  return {
-    disease: primaryDisease,
-    differentials: differentials.slice(0, 3)
-  };
-}
 
 // In-Memory Database for Contact Tickets & Login Audits
 interface ContactTicket {
