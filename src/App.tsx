@@ -302,8 +302,23 @@ CONFIDENTIAL PATIENT DOCUMENT - MACHINE LEARNING ASSISTED
       });
 
       if (!response.ok) {
-        const errObj = await response.json();
-        throw new Error(errObj.error || "System predictor response failed.");
+        let errMsg = "System predictor response failed.";
+        try {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errObj = await response.json();
+            errMsg = errObj.error || errMsg;
+          } else {
+            const rawText = await response.text();
+            console.warn("Received non-JSON error response from server:", rawText);
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
+      }
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("API did not return JSON. Operating with fallback.");
       }
 
       const data: WebPredictionResult = await response.json();
@@ -371,8 +386,11 @@ CONFIDENTIAL PATIENT DOCUMENT - MACHINE LEARNING ASSISTED
     try {
       const response = await fetch("/api/admin/logs");
       if (response.ok) {
-        const data = await response.json();
-        setAdminData(data);
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          setAdminData(data);
+        }
       }
     } catch (err) {
       console.error("Failed to load clinical security audit logs:", err);
@@ -392,8 +410,15 @@ CONFIDENTIAL PATIENT DOCUMENT - MACHINE LEARNING ASSISTED
         addLog(`Contact Support message sent for "${contactForm.name}". Auto trace event registered.`);
         fetchAdminLogs(); // update logs in background
       } else {
-        const errData = await response.json();
-        addLog(`Support dispatch failed: ${errData.error || "Server issue"}`);
+        let errMessage = "Server issue";
+        try {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errData = await response.json();
+            errMessage = errData.error || errMessage;
+          }
+        } catch (_) {}
+        addLog(`Support dispatch failed: ${errMessage}`);
       }
     } catch (err) {
       // Fallback
@@ -412,22 +437,28 @@ CONFIDENTIAL PATIENT DOCUMENT - MACHINE LEARNING ASSISTED
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(loginForm)
       });
-      const data = await response.json();
-      if (response.ok) {
-        setAdminSession({
-          email: data.session.email,
-          role: data.session.role
-        });
-        setLoginSuccessMsg(`Access granted as ${data.session.role}! Loading live clinical audit reports...`);
-        addLog(`Successful access verification: ${data.session.email} logged in.`);
-        fetchAdminLogs();
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        if (response.ok) {
+          setAdminSession({
+            email: data.session.email,
+            role: data.session.role
+          });
+          setLoginSuccessMsg(`Access granted as ${data.session.role}! Loading live clinical audit reports...`);
+          addLog(`Successful access verification: ${data.session.email} logged in.`);
+          fetchAdminLogs();
+        } else {
+          setLoginError(data.error || "Invalid authentication parameters.");
+          addLog(`Failed access verification: Attempt by ${loginForm.email} rejected.`);
+          fetchAdminLogs(); // to show the failure in the log!
+        }
       } else {
-        setLoginError(data.error || "Invalid authentication parameters.");
-        addLog(`Failed access verification: Attempt by ${loginForm.email} rejected.`);
-        fetchAdminLogs(); // to show the failure in the log!
+        throw new Error("Invalid response format from authorization server.");
       }
-    } catch (err) {
-      setLoginError("Service connection disrupted.");
+    } catch (err: any) {
+      setLoginError(err.message || "Service connection disrupted.");
     }
   };
 
